@@ -1,94 +1,110 @@
 #include <iostream>
+#include <algorithm>
+#include <list>
 #include <conio.h>
-#include <ctime>
-
-#include "Snake.h"
-#include "Food.h"
-
-#define WIDTH 50
-#define HEIGHT 25
-
+#include <windows.h>
 using namespace std;
-
-Snake snake({WIDTH/2, HEIGHT/2}, 1);
-Food food;
-
-int score;
-
-void board()
-{
-    COORD snake_pos = snake.get_pos();
-    COORD food_pos = food.get_pos();
-
-    vector<COORD> snake_body = snake.get_body();
-
-    cout << "SCORE : " << score << "\n\n";
-
-    for(int i = 0; i < HEIGHT; i++)
-    {
-        cout << "\t\t#";
-        for(int j = 0; j < WIDTH - 2; j++)
-        {
-            if(i == 0 || i == HEIGHT-1) cout << '#';
-
-            else if(i == snake_pos.Y && j+1 == snake_pos.X) cout << '0';
-            else if(i == food_pos.Y && j+1 == food_pos.X) cout << '@';
-
-            else
-            {
-                bool isBodyPart = false;
-                for(int k = 0; k < snake_body.size()-1; k++)
-                {
-                    if(i == snake_body[k].Y && j+1 == snake_body[k].X)
-                    {
-                        cout << 'o';
-                        isBodyPart = true;
-                        break;
-                    }
+class Snake {
+public:
+    enum Face { EAST = 1, NORTH = 2, WEST = 3, SOUTH = 4 }; // 4 directions
+    int max_x, max_y, is_alive;
+    Face face;
+    list<int> cells;
+    Snake() { is_alive = 1; }
+    Snake(int w, int h): max_x(w), max_y(h) { is_alive = 1; }
+    bool having(int a_cell) {
+        return this->cells.end() != find(cells.begin(), cells.end(), a_cell);
+    }
+    void set_face(Face f) { if (2 != abs(face - f)) { face = f; } }
+    int head() { return this->cells.back(); }
+    int next_head() {
+        int x = this->head() % max_x, y = this->head() / max_x;
+        switch (this->face) { // caculate new head on current face direction
+            case EAST:  x = max_x-1 <= x ? 0 : x+1; break;
+            case WEST:  x = x <= 0 ? max_x-1 : x-1; break;
+            case NORTH: y = y <= 0 ? max_y-1 : y-1; break;
+            case SOUTH: y = max_y-1 <= y ? 0 : y+1; break;
+            default: break;
+        }
+        return y * max_x + x;
+    }
+}; // .class Snake =============================================================
+class SnakeLogic {
+    list<int> field, blanks;
+    Snake snake;
+    int score, food_cell, max_delay_ms;
+    void get_input() {
+        unsigned int waited_MS = 0, input_wait_MS = 20;
+        do {
+            if (kbhit()) { // Keyboard hit!
+                switch (getch()) { // Get input char
+                    case 'a': case 'A': snake.set_face(Snake::WEST);  break;
+                    case 's': case 'S': snake.set_face(Snake::SOUTH); break;
+                    case 'd': case 'D': snake.set_face(Snake::EAST);  break;
+                    case 'w': case 'W': snake.set_face(Snake::NORTH); break;
+                    case 'X': snake.is_alive = 0; break; // Stop Game
+                    default: break;
                 }
-
-                if(!isBodyPart) cout << ' ';
             }
-        }
-        cout << "#\n";
+            waited_MS += input_wait_MS;
+            Sleep(input_wait_MS); // wait for next keyboard hit
+        } while (max_delay_ms > waited_MS);
     }
-}
-
-int main()
-{
-    score = 0;
-    srand(time(NULL));
-
-    food.gen_food();
-
-    char game_over = false;
-
-    while(!game_over)
-    {
-        board();
-
-        if(kbhit())
-        {
-            switch(getch())
-            {
-                case 'w': snake.direction('u'); break;
-                case 'a': snake.direction('l'); break;
-                case 's': snake.direction('d'); break;
-                case 'd': snake.direction('r'); break;
-            }
-        }
-
-        if(snake.collided()) game_over = true;
-
-        if(snake.eaten(food.get_pos()))
-        {
-            food.gen_food();
-            snake.grow();
-            score = score + 10;
-        }
-
-        snake.move_snake();
-
-        SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), {0, 0});
+    void generate_food() {
+        blanks.clear(); // clear old field on previous calculation
+        int i = 0;
+        do { if (!snake.having(i)) { blanks.push_back(i); } }
+	while (i++ < field.size()); // Finish finding blank cells
+        list<int>::iterator it = blanks.begin(); // iterator at beginning
+        advance(it, rand() % blanks.size()); // Go to a random blank cell
+        food_cell = *(it); // assign new food position
     }
+    void update() {
+        int next_head = snake.next_head();
+        if (snake.having(next_head)) { snake.is_alive = 0; } // die on collision
+        else { // if there's a food, keep the tail, else cut tail
+            if (next_head == food_cell) {
+                generate_food(); score++; // make new food & increase score
+            } else { snake.cells.erase(snake.cells.begin()); }
+            snake.cells.push_back(next_head); // move ahead
+        }
+    }
+    void re_draw() {
+        system("cls");
+        cout << "SNAKE CPP. Controls: A-left, S-down, D-right, W-up" << endl;
+        int field_cell = 0, width = snake.max_x;
+        do {
+            if (field_cell % width == 0) { cout << " ~]"; }           //Border
+            cout << ( field_cell == food_cell    ? " @ " :
+                      snake.head() == field_cell ? " o " :
+                      snake.having(field_cell)   ? " x " : " - " ); // .cout
+            if (++field_cell % width == 0) { cout << "[~" << endl; }  //Border
+        } while (field_cell < field.size());
+        cout << "SCORE: " << score << endl;
+    }
+public:
+    SnakeLogic(Snake s) {
+        snake = s;
+        int shape = snake.max_x * snake.max_y;
+        while (shape) { field.push_back(shape--); } // Make field: 0...shape
+    }
+    void setup(int delay_ms) {
+        srand( (unsigned int)time(0) ); // Randomize the seed
+    	snake.cells.push_back(0); snake.cells.push_back(1); // 2 init cells
+    	snake.face = Snake::EAST; // init face for cells [0,1]
+        max_delay_ms = delay_ms;
+        generate_food();
+    }
+    void loop() {
+        while (snake.is_alive) { get_input(); update(); re_draw(); }
+    };
+}; // .class SnakeLogic || LINE NUMBER #100 ====================================
+
+int main(int argc, const char * argv[]) {
+    SnakeLogic game(Snake(20, 15));
+    game.setup(100); // Delay 100ms
+    game.loop();
+    cout << "GAME OVER. Seemore at ngbaanh (@)medium.com" << endl;
+    getch(); // press any key to continue
+    return 0;
 }
